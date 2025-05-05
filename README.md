@@ -75,7 +75,7 @@ python3 ./serving/serving_system_MoDM.py \
 
 ## Citation
 
-If this work is helpful, please kindly cite as:
+If this work is helpful, please cite as:
 
 ```bibtex
 @misc{xia2025modmefficientservingimage,
