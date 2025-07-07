@@ -212,8 +212,8 @@ def load_model(model_type, device):
 def request_scheduler(req_queue,  selected_requests, start_time, worker_status, num_gpus, log_file="request_throughput_Baseline.csv"):
 
     minute = 0
-    with open(log_file, "w") as f:
-        f.write("timestamp,request_rate,throughput\n")
+    # with open(log_file, "w") as f:
+    #     f.write("timestamp,request_rate,throughput\n")
     last_check_time = time.time()
     last_check_time_queue = last_check_time
     request_count_per_min = 0
@@ -243,21 +243,21 @@ def request_scheduler(req_queue,  selected_requests, start_time, worker_status, 
             new_size_of_queues =  req_queue.qsize() 
             throughput = size_of_queues + request_count_per_min - new_size_of_queues
             size_of_queues = new_size_of_queues
-            with open(log_file, "a") as f:
-                f.write(f"{minute},{request_count_per_min / elapsed_time * 60},{throughput / elapsed_time * 60}\n")
+            # with open(log_file, "a") as f:
+            #     f.write(f"{minute},{request_count_per_min / elapsed_time * 60},{throughput / elapsed_time * 60}\n")
             request_count_per_min = 0
             last_check_time_queue = current_time
             
-    # for _ in range(num_gpus):
-    #     req_queue.put(None)  # Each worker will receive one None signal
+    for _ in range(num_gpus):
+        req_queue.put(None)  # Each worker will receive one None signal
         
     while True:
-        if req_queue.empty():
+        # if req_queue.empty():
             # Check if all workers have finished or dropped
-            all_done = all(status in ["finished", "dropped"] for status in worker_status.values())
-            if all_done:
-                print("[Scheduler] All workers have finished. Terminating.")
-                break  # Exit scheduler loop
+        all_done = all(status in ["finished", "dropped"] for status in worker_status.values())
+        if all_done:
+            print("[Scheduler] All workers have finished. Terminating.")
+            break  # Exit scheduler loop
 
         time.sleep(1)  # Prevent busy waiting
 
@@ -276,10 +276,10 @@ def worker(gpu_id, req_queue, latency_queue, worker_status, model_type):
             
             request = req_queue.get(timeout=10)
             
-            # if request is None:
-            #     print(f"[Worker {gpu_id}] Received termination signal. Exiting...")
-            #     worker_status[gpu_id] = "finished"
-            #     break  
+            if request is None:
+                print(f"[Worker {gpu_id}] Received termination signal. Exiting...")
+                worker_status[gpu_id] = "finished"
+                break  
             idle_counter = 0
             prompt = request['prompt']
             clean_prompt = re.sub(r'[^\w\-_\.]', '_', prompt)[:220]
@@ -390,7 +390,14 @@ if __name__ == "__main__":
     print("\n🚀 **Final Latency Report**")
     for i, latency in enumerate(all_latencies):
         print(f"{latency:.4f}")
-
+        
+    if all_latencies:
+        total_time = all_latencies[-1] 
+        throughput = args.num_req / total_time * 60
+        print(f"\n📈 Total Time: {total_time:.4f} seconds")
+        print(f"Throughput: {throughput:.2f} requests/min")
+    else:
+        print("No latencies recorded.")
     # if all_latencies:
     #     total_time = max(all_latencies)  # Last request latency
     #     throughput = len(all_latencies) / total_time * 60  # Requests per min

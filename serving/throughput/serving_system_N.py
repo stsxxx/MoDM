@@ -208,8 +208,8 @@ def request_scheduler(req_queue,  selected_requests, start_time, index, cache, n
     device = clip_model.device
     agg_k_distribution = {5: 0, 10: 0, 15: 0, 20: 0, 25: 0} 
     minute = 0
-    with open(log_file, "w") as f:
-        f.write("timestamp,request_rate,throughput\n")
+    # with open(log_file, "w") as f:
+    #     f.write("timestamp,request_rate,throughput\n")
     last_check_time = time.time()
     last_check_time_queue = last_check_time
     request_count_per_min = 0
@@ -320,8 +320,8 @@ def request_scheduler(req_queue,  selected_requests, start_time, index, cache, n
             new_size_of_queues =  req_queue.qsize() 
             throughput = size_of_queues + request_count_per_min - new_size_of_queues
             size_of_queues = new_size_of_queues
-            with open(log_file, "a") as f:
-                f.write(f"{minute},{request_count_per_min / elapsed_time * 60},{throughput / elapsed_time * 60}\n")
+            # with open(log_file, "a") as f:
+            #     f.write(f"{minute},{request_count_per_min / elapsed_time * 60},{throughput / elapsed_time * 60}\n")
             request_count_per_min = 0
             last_check_time_queue = current_time
         time.sleep(time_gap)
@@ -330,13 +330,13 @@ def request_scheduler(req_queue,  selected_requests, start_time, index, cache, n
         req_queue.put(None)  # Each worker will receive one None signal
                 
     while True:
-        if req_queue.empty():
-            # Check if all workers have finished or dropped
-            all_done = all(status in ["finished", "dropped"] for status in worker_status.values())
-            if all_done:
-                print("[Scheduler] All workers have finished. Terminating.")
-                time.sleep(100)
-                break  # Exit scheduler loop
+        # if req_queue.empty():
+        #     # Check if all workers have finished or dropped
+        all_done = all(status in ["finished", "dropped"] for status in worker_status.values())
+        if all_done:
+            print("[Scheduler] All workers have finished. Terminating.")
+            time.sleep(10)
+            break  # Exit scheduler loop
 
         time.sleep(1)  # Prevent busy waiting
 
@@ -354,13 +354,14 @@ def worker(gpu_id, req_queue, new_cache_queue,latency_queue, worker_status):
         try:
             
             request = req_queue.get(timeout=10)
-            idle_counter = 0
-            prompt = request['prompt']
-            clean_prompt = re.sub(r'[^\w\-_\.]', '_', prompt)[:210]
             if request is None:
                 print(f"[Worker {gpu_id}] Received termination signal. Exiting...")
                 worker_status[gpu_id] = "finished"
                 break  
+            idle_counter = 0
+            prompt = request['prompt']
+            clean_prompt = re.sub(r'[^\w\-_\.]', '_', prompt)[:210]
+
             # no hit
             if request['cached'] is None:
                 timesteps_batch = precompute_timesteps_for_labels_35(scheduler, [0], "cpu",0)[0]
@@ -538,9 +539,9 @@ if __name__ == "__main__":
     # final_text_embeddings = final_text_embeddings[0:3333]
     # cached_requests = cached_requests[0:3333]
     
-    final_latents = torch.load("../cached_latents_1.pt", map_location="cpu")
-    final_latents_1 = torch.load("../cached_latents_2.pt", map_location="cpu")
-    final_latents_2 = torch.load("../cached_latents_3.pt", map_location="cpu")
+    final_latents = torch.load("./DiffusionDB/cached_latents_1.pt", map_location="cpu")
+    final_latents_1 = torch.load("./DiffusionDB/cached_latents_2.pt", map_location="cpu")
+    final_latents_2 = torch.load("./DiffusionDB/cached_latents_3.pt", map_location="cpu")
 
     final_latents = torch.cat((final_latents,final_latents_1), dim=0)
     final_latents = torch.cat((final_latents,final_latents_2), dim=0)

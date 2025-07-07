@@ -16,6 +16,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import numpy as np
+from math import floor
 
 
 
@@ -223,8 +224,8 @@ def request_scheduler(
     agg_k_distribution = {5: 0, 10: 0, 15: 0, 25: 0, 30: 0} 
     device = "cuda:0"
     minute = 0
-    with open(log_file, "w") as f:
-        f.write("timestamp,request_rate,throughput\n")
+    # with open(log_file, "w") as f:
+    #     f.write("timestamp,request_rate,throughput\n")
 
 
     request_count_per_min = 0
@@ -326,7 +327,7 @@ def request_scheduler(
             best_index, best_score, k, strength, agg_k_distribution= retrieve_best_image(text_embedding, final_image_embeddings, k_distribution, agg_k_distribution)
             print(agg_k_distribution)
             if k is not None:
-                print("hit1")
+                # print("hit1")
 
                 hit_count += 1  # Increment hit count
                 row['retrieved_image_index'] = best_index
@@ -361,8 +362,8 @@ def request_scheduler(
             new_size_of_queues =  nonhit_queue.qsize() + hit_queue.qsize()
             throughput = size_of_queues + request_count_per_min - new_size_of_queues
             size_of_queues = new_size_of_queues
-            with open(log_file, "a") as f:
-                f.write(f"{minute},{request_count_per_min / elapsed_time * 60},{throughput / elapsed_time * 60}\n")
+            # with open(log_file, "a") as f:
+            #     f.write(f"{minute},{request_count_per_min / elapsed_time * 60},{throughput / elapsed_time * 60}\n")
             request_count_per_min = 0
             last_check_time_queue = current_time
         
@@ -393,16 +394,17 @@ def request_scheduler(
         
     for _ in range(num_gpus):
         hit_queue.put(None)  # Each worker will receive one None signal
+        nonhit_queue.put(None)
         
     scheduler_status['status'] = "dropped"
     wait = 0
     while True:
-        if hit_queue.empty() and nonhit_queue.empty():
-            # Check if all workers have finished or dropped
-            all_done = all(status in ["finished", "dropped"] for status in worker_status.values())
-            if all_done:
-                print("[Scheduler] All workers have finished. Terminating.")
-                break  # Exit scheduler loop
+        # if hit_queue.empty() and nonhit_queue.empty():
+        #     # Check if all workers have finished or dropped
+        all_done = all(status in ["finished", "dropped"] for status in worker_status.values())
+        if all_done:
+            print("[Scheduler] All workers have finished. Terminating.")
+            break  # Exit scheduler loop
         else:
             wait += 1
             print('wait :', wait)
@@ -480,14 +482,14 @@ def global_monitor(request_rate_queue, control_queues, num_gpus, avg_latency_lar
             continue
 
 
-def worker(gpu_id, hit_queue, nonhit_queue, control_queue, shared_new_images,latency_queue ,worker_status , scheduler_status):
+def worker(gpu_id, num_gpus, hit_queue, nonhit_queue, control_queue, shared_new_images,latency_queue ,worker_status , scheduler_status):
     """Worker process to handle requests."""
     device = f"cuda:{gpu_id}"
-    # if gpu_id == 0:
-    #     model_type = "sdxl"
-    # else:
-    #     model_type = "sd3.5"
-    model_type = args.large_model
+    if gpu_id == num_gpus - 1:
+        model_type = args.small_model
+    else:
+        model_type = args.large_model
+    # model_type = args.large_model
     seed = 42 #any
     generator = torch.Generator(device).manual_seed(seed)
     model = load_model(model_type, device)
@@ -519,10 +521,31 @@ def worker(gpu_id, hit_queue, nonhit_queue, control_queue, shared_new_images,lat
                 idle_counter = 0
                 
             if request is None:
-                print(f"[Worker {gpu_id}] Received termination signal. Exiting...")
-                worker_status[gpu_id] = "finished"
-                break  
-                            
+                if model_type ==  args.small_model:
+                    if nonhit_queue.qsize() > num_gpus:
+                        model_type =  args.large_model
+                        del model
+                        torch.cuda.empty_cache()
+                        gc.collect()
+                        model = load_model(model_type, device)
+                        continue
+                    else:
+                        print(f"[Worker {gpu_id}] Received termination signal. Exiting...")
+                        worker_status[gpu_id] = "finished"
+                        break  
+                elif model_type ==  args.large_model:
+                    if hit_queue.qsize() > num_gpus:
+                        model_type =  args.small_model
+                        del model
+                        torch.cuda.empty_cache()
+                        gc.collect()
+                        model = load_model(model_type, device)
+                        continue
+                    else:
+                        print(f"[Worker {gpu_id}] Received termination signal. Exiting...")
+                        worker_status[gpu_id] = "finished"
+                        break  
+
             prompt = request['prompt']
             clean_prompt = re.sub(r'[^\w\-_\.]', '_', prompt)[:210]
             
@@ -641,7 +664,7 @@ if __name__ == "__main__":
             "stabilityai/stable-diffusion-3.5-large", torch_dtype=torch.bfloat16
         ).to(device)
         scheduler = FlowMatchEulerDiscreteScheduler.from_config(large_model.scheduler.config)
-        for i in range(2):
+        for i in range(3):
             start_time = time.time()
             timesteps_batch = precompute_timesteps_for_labels_35(scheduler, [0], "cpu",0)[0]
             prompt_embeds, pooled_prompt_embeds, latents = large_model.input_process(prompt = test_prompt,negative_prompt = None, callback_on_step_end=None,
@@ -660,7 +683,7 @@ if __name__ == "__main__":
 
     elif args.large_model == "flux":
         large_model =  DiffusionPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=torch.bfloat16).to(device)
-        for i in range(2):
+        for i in range(3):
             start_time = time.time()
             image = large_model(prompt = test_prompt, num_inference_steps = 50, height=1024, width=1024).images[0]
             end_time = time.time()
@@ -677,7 +700,7 @@ if __name__ == "__main__":
         small_model = StableDiffusionXLPipeline.from_pretrained(
             "stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16
         ).to(device)
-        for i in range(5):
+        for i in range(3):
             start_time = time.time()
             small_model(prompt = test_prompt, num_inference_steps = 50, height=1024, width=1024)
             end_time = time.time()
@@ -694,7 +717,7 @@ if __name__ == "__main__":
             variant="bf16",
             torch_dtype=torch.bfloat16,
         ).to(device)
-        for i in range(5):
+        for i in range(3):
             start_time = time.time()
             small_model(prompt = test_prompt, num_inference_steps = 50, height=1024, width=1024)
             end_time = time.time()
@@ -758,14 +781,15 @@ if __name__ == "__main__":
         final_image_embeddings = torch.cat(image_embeddings, dim=0)
         torch.save(final_image_embeddings, "final_image_embeddings.pt")
         print(f"Generated embeddings for {len(cached_image_paths)} images.")
-        # final_image_embeddings = torch.load("final_image_embeddings.pt")
+        # final_image_embeddings = torch.load("final_image_embeddings.pt", map_location=device)
         
     num_gpus = torch.cuda.device_count()
     
     large_throughput_per_gpu = 1 / avg_latency_large
-    small_throughput_per_gpu = 1 / (avg_latency_small * 0.8)
-    time_gap = 1 / (large_throughput_per_gpu + small_throughput_per_gpu * (num_gpus - 1))
-    time_gap = max(time_gap-0.05, 0)
+    small_throughput_per_gpu = 1 / (avg_latency_small * 0.7)
+    N_small = int(floor(num_gpus/3))
+    time_gap = 1 / (large_throughput_per_gpu * (num_gpus - N_small) + small_throughput_per_gpu * N_small)
+    time_gap = max(time_gap, 0)
     print('time gap:', time_gap)
 
     hit_queue = mp.Queue()
@@ -798,7 +822,7 @@ if __name__ == "__main__":
     workers = []
     for gpu_id in range(num_gpus):
         worker_status[gpu_id] = "starting"
-        p = mp.Process(target=worker, args=(gpu_id, hit_queue, nonhit_queue, control_queues[gpu_id], shared_new_images, latency_queue, worker_status, scheduler_status))
+        p = mp.Process(target=worker, args=(gpu_id, num_gpus, hit_queue, nonhit_queue, control_queues[gpu_id], shared_new_images, latency_queue, worker_status, scheduler_status))
         p.start()
         workers.append(p)
 
