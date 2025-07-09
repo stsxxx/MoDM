@@ -6,9 +6,9 @@ mkdir -p $LOG_DIR  # Ensure the log directory exists
 
 # Define the different script versions and their corresponding labels
 declare -A SCRIPTS=(
-    ["serving_system.py"]="ours"
+    ["serving_system.py"]="MoDM"
     # ["serving_system_N.py"]="NIRVANA"
-    # ["serving_baseline.py"]="baseline"
+    # ["serving_baseline.py"]="Vanilla"
 )
 
 # Define the request rates

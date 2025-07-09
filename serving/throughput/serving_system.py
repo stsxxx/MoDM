@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import numpy as np
 from math import floor
-
+import json
 
 
 parser = argparse.ArgumentParser(description="model selection")
@@ -28,6 +28,7 @@ parser.add_argument("--cache_size", type=int, default=10000, help="cache size")
 parser.add_argument("--warm_up_size", type=int, default=1000, required=True, help="number of warmup requests")
 parser.add_argument("--cache_directory", type=str, required=False, help="directory of cached images")
 parser.add_argument("--image_directory", type=str, required=False, help="directory of generated images")
+parser.add_argument("--dataset", type=str, default='diffusiondb', required=False, help="dataset")
 
 
 args = parser.parse_args()
@@ -234,6 +235,7 @@ def request_scheduler(
     counter = 0
     print(sorted_df.shape)
     if warm_up_size != 0:
+        
         for i, row in sorted_df.head(warm_up_size).iterrows():
 
             row['start_time'] = start_time
@@ -643,19 +645,9 @@ if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
     if not os.path.exists(args.cache_directory):
         print(f"The pre-cache directory {args.cache_directory} does not exist.")
-    metadata_df = pd.read_parquet('./metadata.parquet')
-    if 'timestamp' in metadata_df.columns:
-        sorted_df = metadata_df.sort_values(by='timestamp')
         
-        # Set all seconds_from_start to zero
-        sorted_df['seconds_from_start'] = 0
-
-        # Display modified DataFrame
-        print(sorted_df[['timestamp', 'seconds_from_start']].head())
-    else:
-        print("No timestamp column found in the DataFrame.")
-
     device = torch.device("cuda:0" if torch.cuda.is_available else "cpu")
+
     # profile latency
     test_prompt = "a dog riding a bike"
     large_model_latency = []
@@ -730,18 +722,54 @@ if __name__ == "__main__":
         gc.collect()
         
     warm_up_size = args.warm_up_size
-        
-    sorted_df = sorted_df.sort_values(by='seconds_from_start')
-    selected_requests = sorted_df.iloc[50000-warm_up_size:50000 + args.num_req].copy()
-    # Force all timestamps to be zero
-    selected_requests['seconds_from_start'] = 0
-    num_requests = len(selected_requests)
-        # Print each value with its index
-    for i, seconds in enumerate(selected_requests['seconds_from_start']):
-        print(f"Request {i+1}: {seconds:.2f}")
-        
 
-    
+    if args.dataset == 'diffusiondb':
+        metadata_df = pd.read_parquet('./metadata.parquet')
+        if 'timestamp' in metadata_df.columns:
+            sorted_df = metadata_df.sort_values(by='timestamp')
+            
+            # Set all seconds_from_start to zero
+            sorted_df['seconds_from_start'] = 0
+
+            # Display modified DataFrame
+            print(sorted_df[['timestamp', 'seconds_from_start']].head())
+        else:
+            print("No timestamp column found in the DataFrame.")
+
+        sorted_df = sorted_df.sort_values(by='seconds_from_start')
+        selected_requests = sorted_df.iloc[50000-warm_up_size:50000 + args.num_req].copy()
+        # Force all timestamps to be zero
+        selected_requests['seconds_from_start'] = 0
+        num_requests = len(selected_requests)
+            # Print each value with its index
+        for i, seconds in enumerate(selected_requests['seconds_from_start']):
+            print(f"Request {i+1}: {seconds:.2f}")
+
+    elif args.dataset == "MJHQ":
+        meta_data_path = "./MoDM_cache/MJHQ/meta_data.json"
+        # Load metadata
+        with open(meta_data_path, "r") as f:
+            meta_data = json.load(f)
+        meta_keys = list(meta_data.keys())
+        # Select last 500 from each 3000-chunk
+        selected_keys = []
+        chunk_size = 3000
+        num_chunks = len(meta_data) // chunk_size # 10 chunks
+        for i in range(num_chunks):
+            start = int((i + 1) * chunk_size - (warm_up_size + args.num_req)/ 10)
+            end = int((i + 1) * chunk_size - args.num_req / 10)
+            selected_keys.extend(meta_keys[start:end])
+        for i in range(num_chunks):
+            start = int((i + 1) * chunk_size - args.num_req / 10)
+            end = int((i + 1) * chunk_size)
+            selected_keys.extend(meta_keys[start:end])
+        # Create subset dictionary
+        selected_requests = {key: meta_data[key] for key in selected_keys}
+        for key in selected_requests:
+            selected_requests[key]['seconds_from_start'] = 0 
+        selected_requests = pd.DataFrame.from_dict(selected_requests, orient='index')
+
+
     model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14").to(device)
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
     
@@ -779,14 +807,19 @@ if __name__ == "__main__":
 
         # Concatenate all image embeddings into a single tensor
         final_image_embeddings = torch.cat(image_embeddings, dim=0)
-        torch.save(final_image_embeddings, "final_image_embeddings.pt")
+        torch.save(final_image_embeddings, f"final_image_embeddings_{args.dataset}_{args.large_model}.pt")
+
+
         print(f"Generated embeddings for {len(cached_image_paths)} images.")
         # final_image_embeddings = torch.load("final_image_embeddings.pt", map_location=device)
         
     num_gpus = torch.cuda.device_count()
     
     large_throughput_per_gpu = 1 / avg_latency_large
-    small_throughput_per_gpu = 1 / (avg_latency_small * 0.7)
+    if args.dataset == "diffusiondb":
+        small_throughput_per_gpu = 1 / (avg_latency_small * 0.7)
+    elif args.dataset == "MJHQ":
+        small_throughput_per_gpu = 1 / (avg_latency_small * 0.8)
     N_small = int(floor(num_gpus/3))
     time_gap = 1 / (large_throughput_per_gpu * (num_gpus - N_small) + small_throughput_per_gpu * N_small)
     time_gap = max(time_gap, 0)

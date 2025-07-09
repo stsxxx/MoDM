@@ -17,12 +17,14 @@ import re
 import heapq
 from tqdm import tqdm
 import argparse
-
+import json
 
 parser = argparse.ArgumentParser(description="model selection")
 parser.add_argument("--image_directory", type=str, required=False, help="directory of generated images")
 parser.add_argument("--large_model", type=str, required=True, help="which large model you wanna use")
 parser.add_argument("--num_req", type=int, default=10000, required=True, help="number of requests")
+parser.add_argument("--dataset", type=str, default='diffusiondb', required=False, help="dataset")
+
 args = parser.parse_args()
 
 
@@ -326,24 +328,45 @@ def worker(gpu_id, req_queue, latency_queue, worker_status, model_type):
 
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
+    if args.dataset == "diffusiondb":
+        metadata_df = pd.read_parquet('./metadata.parquet')
+        if 'timestamp' in metadata_df.columns:
+            sorted_df = metadata_df.sort_values(by='timestamp')
+            
+            # Set all seconds_from_start to zero
+            sorted_df['seconds_from_start'] = 0
 
-    metadata_df = pd.read_parquet('./metadata.parquet')
-    if 'timestamp' in metadata_df.columns:
-        sorted_df = metadata_df.sort_values(by='timestamp')
-        
-        # Set all seconds_from_start to zero
-        sorted_df['seconds_from_start'] = 0
-
-        # Display modified DataFrame
-        print(sorted_df[['timestamp', 'seconds_from_start']].head())
-    else:
-        print("No timestamp column found in the DataFrame.")
+            # Display modified DataFrame
+            print(sorted_df[['timestamp', 'seconds_from_start']].head())
+        else:
+            print("No timestamp column found in the DataFrame.")
 
 
-    sorted_df = sorted_df.sort_values(by='seconds_from_start')
-    selected_requests = sorted_df.iloc[50000:50000 + args.num_req].copy()
-    # Force all timestamps to be zero
-    selected_requests['seconds_from_start'] = 0
+        sorted_df = sorted_df.sort_values(by='seconds_from_start')
+        selected_requests = sorted_df.iloc[50000:50000 + args.num_req].copy()
+        # Force all timestamps to be zero
+        selected_requests['seconds_from_start'] = 0
+    elif args.dataset == "MJHQ":
+        meta_data_path = "./MoDM_cache/MJHQ/meta_data.json"
+        # Load metadata
+        with open(meta_data_path, "r") as f:
+            meta_data = json.load(f)
+        meta_keys = list(meta_data.keys())
+        # Select last 500 from each 3000-chunk
+        selected_keys = []
+        chunk_size = 3000
+        num_chunks = len(meta_data) // chunk_size # 10 chunks
+
+        for i in range(num_chunks):
+            start = int((i + 1) * chunk_size - args.num_req / 10)
+            end = int((i + 1) * chunk_size)
+            selected_keys.extend(meta_keys[start:end])
+        # Create subset dictionary
+        selected_requests = {key: meta_data[key] for key in selected_keys}
+        for key in selected_requests:
+            selected_requests[key]['seconds_from_start'] = 0 
+        selected_requests = pd.DataFrame.from_dict(selected_requests, orient='index')
+
     num_requests = len(selected_requests)
     # selected_requests['seconds_from_start'] = generate_rapidly_increasing_seconds_from_start(
     # num_requests, min_rate=1, max_rate=9
@@ -390,7 +413,7 @@ if __name__ == "__main__":
     print("\n🚀 **Final Latency Report**")
     for i, latency in enumerate(all_latencies):
         print(f"{latency:.4f}")
-        
+
     if all_latencies:
         total_time = all_latencies[-1] 
         throughput = args.num_req / total_time * 60
