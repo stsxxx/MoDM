@@ -20,6 +20,8 @@ Then install all required libraries
 pip install pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 pytorch-cuda=11.8 -c pytorch -c nvidia
 # For AMD GPU install PyTorch 2.3.0 compatible with ROCM 5.6
 pip install torch==2.3.0.dev20240111+rocm5.6 torchvision==0.18.0.dev20240116+rocm5.6
+```
+```bash
 # install other dependencies
 pip install -r requirements.txt
 ```
