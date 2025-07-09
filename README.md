@@ -6,8 +6,14 @@
 Experiments are conducted using NVIDIA A40 GPU with 48GB memory and AMD MI210 GPU with 64GB.
 
 ## Getting Started
+First, Create and activate a conda environment
 
-First, install all required libraries
+```bash
+conda create -n MoDM python=3.10 -y
+conda activate MoDM
+```
+
+Then install all required libraries
 
 ```bash
 # For Nvidia GPU install PyTorch 2.1.0 compatible with CUDA 11.8
@@ -32,45 +38,37 @@ Download DiffusionDB metadata first
 python3 DiffusionDB_parquet.py
 ```
 
-## Throughput 
+Download pre-computed cache images and latents
 ```bash
-# --large_model can be selected from flux and sd3.5
-# --small_model can be selected from sdxl and sana
-python3 ./serving/throughput/serving_system.py \
-  --large_model flux \
-  --small_model sdxl \
-  --num_req 1000 \
-  --warm_up_size 10 \
-  --cache_directory "the directory where the pre-cached images are stored" \
-  --image_directory ./MoDM_throughput \
-  2>&1 | tee MoDM_throughput.txt
+gdown --folder --remaining-ok https://drive.google.com/drive/folders/1OFfbd_BgwTVY38bq_s0R0zyDaUytKB-Y
 ```
 
-## SLO
+## Throughput Experiments
 ```bash
-# Run SLO experiment
-# --req_rate can be set for specific request rate (#/min)
-python3 ./serving/SLO/serving_system_MoDM_SLO.py \
-  --large_model flux \
-  --small_model sdxl \
-  --num_req 1000 \
-  --cache_directory "the directory where the pre-cached images are stored" \
-  --image_directory ./MoDM_SLO \
-  2>&1 | tee MoDM_SLO.txt
+# MoDM
+./run_MoDM.sh
 
-# Generate statistics
-python3 ./serving/SLO/stats.py --log_file MoDM_SLO.txt
+# Vanilla
+./run_Vanilla.sh
+
+# NIRVANA
+./run_NIRVANA.sh
 ```
 
-## Increasing Request Rate
+## Image Quality
 ```bash
-python3 ./serving/serving_system_MoDM.py \
-  --large_model flux \
-  --small_model sdxl \
-  --num_req 1000 \
-  --cache_directory "the directory where the pre-cached images are stored" \
-  --image_directory ./MoDM_increasing_rate \
-  2>&1 | tee MoDM_increasing_rate.txt
+# Clip Score
+python3 calculate_clip_dir.py > clip_score.txt
+
+# IS
+python3 IS_score.py > IS_score.txt
+
+# Pick Score
+# Create a separate Conda environment and install all dependencies as described in the PickScore repository:
+# https://github.com/yuvalkirstain/PickScore
+# After setting up, return to the MoDM directory and run
+python3 pick_score.py > pick_score.txt
+
 ```
 
 ## Citation

@@ -57,31 +57,16 @@ def compute_clip_scores_batch(image_dir, batch_size=16):
     return avg_clip_score
 
 # Define directories
-# base_path = "/data6/stilex/cache_hit_image/final_check"
-# directories = {
-#     "OG": os.path.join(base_path, "og"),
-#     "Small": os.path.join(base_path, "small"),
-#     "Large": os.path.join(base_path, "large")
-# }
-# base_path = "/data6/stilex/large_small"
-# directories = {
-#     "OG": os.path.join(base_path, "nohit"),
-#     "k=10": os.path.join(base_path, "small_10"),
-#     "k=15": os.path.join(base_path, "small_15"),
-#     "k=20": os.path.join(base_path, "small_20"),
-#     "k=25": os.path.join(base_path, "small_25"),
-#     "k=30": os.path.join(base_path, "small_30"),
-# }
-# directories = {
-#     "N": "/data6/stilex/serving/NIRVANA/nohit",
-#     "O": "/data6/stilex/serving/nohit"
-# }
 
 directories = {
-    # "NIRVANA": "/data6/stilex/throughput/NIRVANA",
-    # "OURS": "/data6/stilex/throughput/Ours",
-    # "VANILLA": "/data6/stilex/throughput/baseline"
-    'flux': '/home/stilex/Diffusion_Opt/serving/throughput/Images_MoDM'
+    "NIRVANA_MJHQ": "./images/NIRVANA_throughput_MJHQ",
+    "NIRVANA_DiffusionDB": "./images/NIRVANA_throughput_diffusionDB",
+    "Vanilla_MJHQ": "./images/Vanilla_throughput_MJHQ",
+    "Vanilla_diffusionDB": "./images/Vanilla_throughput_diffusionDB",
+    "MoDM_sdxl_MJHQ": "./images/MoDM_throughput_MJHQ_sdxl",
+    "MoDM_sana_MJHQ": "./images/MoDM_throughput_MJHQ_sana",
+    "MoDM_sdxl_diffusionDB": "./images/MoDM_throughput_diffusionDB_sdxl",
+    "MoDM_sana_diffusionDB": "./images/MoDM_throughput_diffusionDB_sana",
 }
 # Compute and print average CLIP scores for each directory
 results = {}
