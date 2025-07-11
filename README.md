@@ -45,6 +45,8 @@ python3 DiffusionDB_parquet.py
 Download pre-computed cache images and latents
 ```bash
 gdown --folder --remaining-ok https://drive.google.com/drive/folders/1OFfbd_BgwTVY38bq_s0R0zyDaUytKB-Y
+unzip ./MoDM_cache/MJHQ/cache_images.zip -d ./MoDM_cache/MJHQ/
+unzip ./MoDM_cache/DiffusionDB/nohit.zip -d ./MoDM_cache/DiffusionDB/
 ```
 
 ## Throughput Experiments
