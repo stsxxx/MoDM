@@ -19,5 +19,6 @@ scikit-image
 tqdm==4.66.1
 transformers==4.46.3
 accelerate==1.0.1
+protobuf==3.20.3
 sentencepiece==0.1.99
 gdown==5.2.0
