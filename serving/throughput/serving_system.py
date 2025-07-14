@@ -549,7 +549,7 @@ def worker(gpu_id, num_gpus, hit_queue, nonhit_queue, control_queue, shared_new_
                         break  
 
             prompt = request['prompt']
-            clean_prompt = re.sub(r'[^\w\-_\.]', '_', prompt)[:210]
+            clean_prompt = re.sub(r'[^\w\-_\.]', '_', prompt)[:230]
             
             if request['k'] is None:
                 if model_type == 'sd3.5':

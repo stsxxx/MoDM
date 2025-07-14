@@ -32,6 +32,17 @@ directory = args.image_directory
 os.makedirs(directory, exist_ok=True)
 print(f"Directory '{directory}' created successfully.")
 
+def calculate_shift(
+    image_seq_len,
+    base_seq_len: int = 256,
+    max_seq_len: int = 4096,
+    base_shift: float = 0.5,
+    max_shift: float = 1.16,
+):
+    m = (max_shift - base_shift) / (max_seq_len - base_seq_len)
+    b = base_shift - m * base_seq_len
+    mu = image_seq_len * m + b
+    return mu
 
 def extract_prompt(filename):
     """Extract prompt from filename by replacing underscores with spaces."""
@@ -113,6 +124,23 @@ def precompute_timesteps_for_labels_35(scheduler, labels, device, index):
 
     return timesteps
 
+
+def precompute_timesteps_for_labels_flux(scheduler, labels, device, index,mu,sigmas):
+    timesteps = []
+    for label in labels:
+        if label == 0:
+            # For label 0, use full 50 iterations
+            scheduler.set_timesteps(num_inference_steps=50, device=device,mu=mu, sigmas=sigmas)
+            timesteps.append(scheduler.timesteps)
+        elif label == 1:
+            # For label 1, use last 40 iterations
+            
+            scheduler.set_timesteps(num_inference_steps=50, device=device, mu=mu, sigmas=sigmas)
+            timesteps.append(scheduler.timesteps[index:])         
+        else:
+            timesteps.append([])  
+
+    return timesteps
 class KMinHeapCache:
     def __init__(self, max_size, initial_embeddings, latents):
         self.heap = []  # Min-heap for (LCBFU score, (index, k_i))
@@ -200,10 +228,13 @@ class KMinHeapCache:
 
 
 # Function to load the Stable Diffusion 3.5 model
-def load_model(device):
-    return StableDiffusion3Pipeline.from_pretrained(
-        "stabilityai/stable-diffusion-3.5-large", torch_dtype=torch.bfloat16
-    ).to(device)
+def load_model(model_type, device):
+    if model_type == "sd3.5":
+        return StableDiffusion3Pipeline.from_pretrained(
+            "stabilityai/stable-diffusion-3.5-large", torch_dtype=torch.bfloat16
+        ).to(device)
+    elif model_type == "flux":
+        return DiffusionPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=torch.bfloat16).to(device)
 
 # Request scheduler
 def request_scheduler(req_queue,  selected_requests, start_time, index, cache, new_cache_queue, cached_requests, final_text_embeddings, k_values, processor, clip_model,  worker_status, num_gpus, time_gap, log_file="request_throughput_3000_N.csv"):
@@ -344,12 +375,13 @@ def request_scheduler(req_queue,  selected_requests, start_time, index, cache, n
 
 
 # Worker Process
-def worker(gpu_id, req_queue, new_cache_queue,latency_queue, worker_status):
+def worker(gpu_id, req_queue, new_cache_queue,latency_queue,model_type, worker_status):
     device = f"cuda:{gpu_id}"
     seed = 42 #any
     generator = torch.Generator(device).manual_seed(seed)
-    model = load_model(device)
+    model = load_model(model_type, device)
     scheduler = FlowMatchEulerDiscreteScheduler.from_config(model.scheduler.config)
+    num_inference_steps = 50
     idle_counter = 0
     max_idle_iterations = 100 # Set a threshold for termination
     while True:
@@ -363,44 +395,79 @@ def worker(gpu_id, req_queue, new_cache_queue,latency_queue, worker_status):
             idle_counter = 0
             prompt = request['prompt']
             clean_prompt = re.sub(r'[^\w\-_\.]', '_', prompt)[:210]
+            
+            generated_image_path = f"{args.image_directory}/{clean_prompt}.png"
 
             # no hit
             if request['cached'] is None:
-                timesteps_batch = precompute_timesteps_for_labels_35(scheduler, [0], "cpu",0)[0]
-                prompt_embeds, pooled_prompt_embeds, latents = model.input_process(prompt = prompt,negative_prompt = None, generator=generator, callback_on_step_end=None,
-                callback_on_step_end_tensor_inputs=["latents"])
-                model_outputs = model(prompt = prompt, prompt_embeds = prompt_embeds, pooled_prompt_embeds = pooled_prompt_embeds, generator=generator, callback_on_step_end=None,
-                callback_on_step_end_tensor_inputs=["current_latents"], timesteps_batch = timesteps_batch,
-                cached_timestep=None ,labels_batch = 0, current_latents=latents, height=1024, width=1024)
+                if model_type == "sd3.5":
+                    timesteps_batch = precompute_timesteps_for_labels_35(scheduler, [0], "cpu",0)[0]
+                    prompt_embeds, pooled_prompt_embeds, latents = model.input_process(prompt = prompt,negative_prompt = None, generator=generator, callback_on_step_end=None,
+                    callback_on_step_end_tensor_inputs=["latents"])
+                    model_outputs = model(prompt = prompt, prompt_embeds = prompt_embeds, pooled_prompt_embeds = pooled_prompt_embeds, generator=generator, callback_on_step_end=None,
+                    callback_on_step_end_tensor_inputs=["current_latents"], timesteps_batch = timesteps_batch,
+                    cached_timestep=None ,labels_batch = 0, current_latents=latents, height=1024, width=1024)
+                    try:
+                        model_outputs[1][0].save(generated_image_path)     
+                    except Exception as e:
+                        print(f"Failed to save image: {e}")
+                        print("image name:", prompt)
                 
-                generated_image_path = f"{args.image_directory}/{clean_prompt}.png"
-                
-                cached_latent = model_outputs[0].cpu()
-                cached_latents = cached_latent.clone().share_memory_()
+                    cached_latent = model_outputs[0].cpu()
+                    cached_latents = cached_latent.clone().share_memory_()
+                elif model_type == "flux":
+                    # timesteps_batch = precompute_timesteps_for_labels_flux(scheduler, [0], "cpu",0)[0]
+                    model_outputs = model(prompt = prompt,generator=generator, callback_on_step_end=None,
+                    callback_on_step_end_tensor_inputs=None, pre_computed_timesteps = None, num_inference_steps =50,
+                    latents=None, height=1024, width=1024, hit=False,)
+                    try:
+                        model_outputs[1].images[0].save(generated_image_path)     
+                    except Exception as e:
+                        print(f"Failed to save image: {e}")
+                        print("image name:", prompt)
+                    cached_latent = model_outputs[0].cpu()
+                    cached_latents = cached_latent.clone().share_memory_()
                 query_embedding = request['query_embedding']
-                new_cache_queue.put({'cached_latents': cached_latents.cpu().share_memory_(), 'prompt':prompt, 'query_embedding': query_embedding.cpu()})
-                try:
-                    model_outputs[1][0].save(generated_image_path)     
-                except Exception as e:
-                    print(f"Failed to save image: {e}")
-                    print("image name:", prompt)
-                    
+                new_cache_queue.put({'cached_latents': cached_latents.cpu().share_memory_(), 'prompt':prompt, 'query_embedding': query_embedding.cpu()}) 
             else:
                 # print(request['latent'].size())
-                timesteps_batch = precompute_timesteps_for_labels_35(scheduler, [1], "cpu",request['k'])[0]
-                prompt_embeds, pooled_prompt_embeds, latents = model.input_process(prompt = prompt,negative_prompt = None, generator=generator, callback_on_step_end=None,
-                callback_on_step_end_tensor_inputs=["latents"])
-                model_outputs = model(prompt = prompt, prompt_embeds = prompt_embeds, pooled_prompt_embeds = pooled_prompt_embeds, generator=generator, callback_on_step_end=None,
-                callback_on_step_end_tensor_inputs=["current_latents"], timesteps_batch = timesteps_batch,
-                cached_timestep=None ,labels_batch = 1, current_latents=request['latent'].unsqueeze(0).to(dtype=torch.bfloat16).to(device), height=1024, width=1024)
-                
-                generated_image_path = f"{args.image_directory}/{clean_prompt}.png"
-                try:
-                    model_outputs[0].save(generated_image_path)
-                except Exception as e:
-                    print(f"Failed to save image: {e}")
-                    print("image name:", prompt)
-                    
+                print(request)
+                if model_type == "sd3.5":
+                    timesteps_batch = precompute_timesteps_for_labels_35(scheduler, [1], "cpu",request['k'])[0]
+                    prompt_embeds, pooled_prompt_embeds, latents = model.input_process(prompt = prompt,negative_prompt = None, generator=generator, callback_on_step_end=None,
+                    callback_on_step_end_tensor_inputs=["latents"])
+                    model_outputs = model(prompt = prompt, prompt_embeds = prompt_embeds, pooled_prompt_embeds = pooled_prompt_embeds, generator=generator, callback_on_step_end=None,
+                    callback_on_step_end_tensor_inputs=["current_latents"], timesteps_batch = timesteps_batch,
+                    cached_timestep=None ,labels_batch = 1, current_latents=request['latent'].unsqueeze(0).to(dtype=torch.bfloat16).to(device), height=1024, width=1024)
+                    try:
+                        model_outputs[0].save(generated_image_path)
+                    except Exception as e:
+                        print(f"Failed to save image: {e}")
+                        print("image name:", prompt)
+                elif model_type == "flux":
+                    image_seq_len = request['latent'].shape[0]
+                    print("latents shape:",request['latent'].shape)
+                    print("image_seq_len:", image_seq_len)
+                    mu = calculate_shift(
+                        image_seq_len,
+                        model.scheduler.config.base_image_seq_len,
+                        model.scheduler.config.max_image_seq_len,
+                        model.scheduler.config.base_shift,
+                        model.scheduler.config.max_shift,
+                    )
+                    sigmas = np.linspace(1.0, 1 / num_inference_steps, num_inference_steps) 
+                    print("mu:", mu)
+                    print("sigmas:", sigmas)
+                    timesteps_batch = precompute_timesteps_for_labels_flux(scheduler, [1], "cpu",request['k'],mu,sigmas)[0]
+                    print("timesteps:", timesteps_batch)
+                    model_outputs = model(prompt = prompt,generator=generator, callback_on_step_end=None,
+                    callback_on_step_end_tensor_inputs=None, pre_computed_timesteps = timesteps_batch, num_inference_steps =50,
+                    latents=request['latent'].unsqueeze(0).to(dtype=torch.bfloat16).to(device), height=1024, width=1024, hit=True,)
+                    try:
+                        model_outputs.images[0].save(generated_image_path)     
+                    except Exception as e:
+                        print(f"Failed to save image: {e}")
+                        print("image name:", prompt)
             finish_time = time.time() - request['start_time']
             print(f"[Worker {gpu_id}] Processed request latency: {finish_time}")
             latency_queue.put(finish_time)
@@ -443,9 +510,9 @@ if __name__ == "__main__":
 
     elif args.large_model == "flux":
         large_model =  DiffusionPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=torch.bfloat16).to(device)
-        for i in range(3):
+        for i in range(1):
             start_time = time.time()
-            image = large_model(prompt = test_prompt, num_inference_steps = 50, height=1024, width=1024).images[0]
+            image = large_model(prompt = test_prompt, num_inference_steps = 50, height=1024, width=1024, hit=False)[1].images[0]
             end_time = time.time()
             large_model_latency.append(end_time - start_time) 
         avg_latency_large = sum(large_model_latency) / len(large_model_latency)
@@ -560,17 +627,29 @@ if __name__ == "__main__":
     
     # final_text_embeddings = final_text_embeddings[0:3333]
     # cached_requests = cached_requests[0:3333]
-    if args.dataset == "diffusiondb":
-        final_latents = torch.load("./MoDM_cache/DiffusionDB/cached_latents_1.pt", map_location="cpu")
-        final_latents_1 = torch.load("./MoDM_cache/DiffusionDB/cached_latents_2.pt", map_location="cpu")
-        final_latents_2 = torch.load("./MoDM_cache/DiffusionDB/cached_latents_3.pt", map_location="cpu")
-    elif args.dataset == "MJHQ":
-        final_latents = torch.load("./MoDM_cache/MJHQ/cached_latents_1.pt", map_location="cpu")
-        final_latents_1 = torch.load("./MoDM_cache/MJHQ/cached_latents_2.pt", map_location="cpu")
-        final_latents_2 = torch.load("./MoDM_cache/MJHQ/cached_latents_3.pt", map_location="cpu")
+    if args.large_model == 'sd3.5':
+        if args.dataset == "diffusiondb":
+            final_latents = torch.load("./MoDM_cache/DiffusionDB/cached_latents_1.pt", map_location="cpu")
+            final_latents_1 = torch.load("./MoDM_cache/DiffusionDB/cached_latents_2.pt", map_location="cpu")
+            final_latents_2 = torch.load("./MoDM_cache/DiffusionDB/cached_latents_3.pt", map_location="cpu")
+        elif args.dataset == "MJHQ":
+            final_latents = torch.load("./MoDM_cache/MJHQ/cached_latents_1.pt", map_location="cpu")
+            final_latents_1 = torch.load("./MoDM_cache/MJHQ/cached_latents_2.pt", map_location="cpu")
+            final_latents_2 = torch.load("./MoDM_cache/MJHQ/cached_latents_3.pt", map_location="cpu")
+        
+        final_latents = torch.cat((final_latents,final_latents_1), dim=0)
+        final_latents = torch.cat((final_latents,final_latents_2), dim=0)
+    elif args.large_model == 'flux':
+        final_latents = torch.load("/home/stilex/MoDM/serving/flux_latents/cached_latents_0.pt", map_location="cpu")
+        final_latents_1 = torch.load("/home/stilex/MoDM/serving/flux_latents/cached_latents_1.pt", map_location="cpu")
+        final_latents_2 = torch.load("/home/stilex/MoDM/serving/flux_latents/cached_latents_2.pt", map_location="cpu")
+        final_latents_3 = torch.load("/home/stilex/MoDM/serving/flux_latents/cached_latents_3.pt", map_location="cpu")
+        final_latents = torch.cat((final_latents,final_latents_1), dim=0)
+        final_latents = torch.cat((final_latents,final_latents_2), dim=0)
+        final_latents = torch.cat((final_latents,final_latents_3), dim=0)
 
-    final_latents = torch.cat((final_latents,final_latents_1), dim=0)
-    final_latents = torch.cat((final_latents,final_latents_2), dim=0)
+
+
 
 
     assert final_latents.shape[0] == 5 * final_text_embeddings.shape[0], \
@@ -610,7 +689,7 @@ if __name__ == "__main__":
     workers = []
     for gpu_id in range(num_gpus):
         worker_status[gpu_id] = "starting"
-        p = mp.Process(target=worker, args=(gpu_id, req_queue, new_cache_queue,latency_queue, worker_status))
+        p = mp.Process(target=worker, args=(gpu_id, req_queue, new_cache_queue,latency_queue,args.large_model, worker_status))
         p.start()
         workers.append(p)
 

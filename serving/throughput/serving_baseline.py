@@ -284,7 +284,7 @@ def worker(gpu_id, req_queue, latency_queue, worker_status, model_type):
                 break  
             idle_counter = 0
             prompt = request['prompt']
-            clean_prompt = re.sub(r'[^\w\-_\.]', '_', prompt)[:220]
+            clean_prompt = re.sub(r'[^\w\-_\.]', '_', prompt)[:230]
             if model_type == 'sd3.5':
                 scheduler = FlowMatchEulerDiscreteScheduler.from_config(model.scheduler.config)
                 timesteps_batch = precompute_timesteps_for_labels_35(scheduler, [0], "cpu",0)[0]
