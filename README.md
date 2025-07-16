@@ -50,6 +50,20 @@ unzip ./MoDM_cache/DiffusionDB/nohit.zip -d ./MoDM_cache/DiffusionDB/
 ```
 
 ## Throughput Experiments
+
+For one GPU experiments
+```bash
+# MoDM
+./run_MoDM_1gpu.sh
+
+# Vanilla
+./run_Vanilla_1gpu.sh
+
+# NIRVANA
+./run_NIRVANA_1gpu.sh
+```
+
+For multiple GPUs experiments
 ```bash
 # MoDM
 ./run_MoDM.sh
