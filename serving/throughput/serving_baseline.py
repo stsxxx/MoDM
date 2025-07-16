@@ -304,11 +304,13 @@ def worker(gpu_id, req_queue, latency_queue, worker_status, model_type):
                     print("image name:", prompt)
                 print(f"[Worker {gpu_id}] Added new image path to shared list: {generated_image_path}")
             elif model_type == 'flux':
-                image = model(prompt = prompt, num_inference_steps = 50, height=1024, width=1024).images[0]
+                model_outputs = model(prompt = prompt,generator=generator, callback_on_step_end=None,
+                    callback_on_step_end_tensor_inputs=None, pre_computed_timesteps = None, num_inference_steps=50,
+                    latents=None, height=1024, width=1024, hit=False,)
                 generated_image_path = f"{args.image_directory}/{clean_prompt}.png"
                 
                 try:
-                    image.save(generated_image_path)
+                    model_outputs[1].images[0].save(generated_image_path) 
                 except Exception as e:
                     print(f"Failed to save image: {e}")
                     print("image name:", prompt)
@@ -421,16 +423,3 @@ if __name__ == "__main__":
         print(f"Throughput: {throughput:.2f} requests/min")
     else:
         print("No latencies recorded.")
-    # if all_latencies:
-    #     total_time = max(all_latencies)  # Last request latency
-    #     throughput = len(all_latencies) / total_time * 60  # Requests per min
-
-    #     print("\n🚀 **Final Latency Report**")
-    #     for i, latency in enumerate(all_latencies):
-    #         print(f"{latency:.4f}")
-
-    #     print(f"\n📊 **Latency Summary**: Min = {min(all_latencies):.4f}s, Max = {max(all_latencies):.4f}s, Avg = {sum(all_latencies)/len(all_latencies):.4f}s")
-    #     print(f"\n⏳ **Total Processing Time**: {total_time:.4f}s")
-    #     print(f"⚡ **System Throughput**: {throughput:.2f} requests/min")
-    # else:
-    #     print("[Main] No latency data collected.")

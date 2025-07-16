@@ -573,11 +573,13 @@ def worker(gpu_id, num_gpus, hit_queue, nonhit_queue, control_queue, shared_new_
 
                     print(f"[Worker {gpu_id}] Added new image path to shared list: {generated_image_path}")
                 elif model_type == 'flux':
-                    image = model(prompt = prompt, num_inference_steps = 50, height=1024, width=1024).images[0]
+                    model_outputs = model(prompt = prompt,generator=generator, callback_on_step_end=None,
+                    callback_on_step_end_tensor_inputs=None, pre_computed_timesteps = None, num_inference_steps =50,
+                    latents=None, height=1024, width=1024, hit=False,)
                     generated_image_path = f"{args.image_directory}/{clean_prompt}.png"
                     
                     try:
-                        image.save(generated_image_path)
+                        model_outputs[1].images[0].save(generated_image_path)   
                         shared_new_images.put(generated_image_path)
                     except Exception as e:
                         print(f"Failed to save image: {e}")
@@ -677,7 +679,9 @@ if __name__ == "__main__":
         large_model =  DiffusionPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=torch.bfloat16).to(device)
         for i in range(3):
             start_time = time.time()
-            image = large_model(prompt = test_prompt, num_inference_steps = 50, height=1024, width=1024).images[0]
+            model_outputs = large_model(prompt = test_prompt, callback_on_step_end=None,
+                    callback_on_step_end_tensor_inputs=None, pre_computed_timesteps = None, num_inference_steps =50,
+                    latents=None, height=1024, width=1024, hit=False,)
             end_time = time.time()
             large_model_latency.append(end_time - start_time) 
         avg_latency_large = sum(large_model_latency) / len(large_model_latency)

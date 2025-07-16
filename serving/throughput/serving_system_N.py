@@ -394,7 +394,7 @@ def worker(gpu_id, req_queue, new_cache_queue,latency_queue,model_type, worker_s
                 break  
             idle_counter = 0
             prompt = request['prompt']
-            clean_prompt = re.sub(r'[^\w\-_\.]', '_', prompt)[:210]
+            clean_prompt = re.sub(r'[^\w\-_\.]', '_', prompt)[:230]
             
             generated_image_path = f"{args.image_directory}/{clean_prompt}.png"
 
