@@ -162,7 +162,7 @@ if __name__ == "__main__":
     warm_up_size = args.warm_up_size
 
     if args.dataset == 'diffusiondb':
-        metadata_df = pd.read_parquet('./metadata.parquet')
+        metadata_df = pd.read_parquet('../metadata.parquet')
         if 'timestamp' in metadata_df.columns:
             sorted_df = metadata_df.sort_values(by='timestamp')
             
