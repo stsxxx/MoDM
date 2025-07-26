@@ -237,7 +237,7 @@ def load_model(model_type, device):
         return DiffusionPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=torch.bfloat16).to(device)
 
 # Request scheduler
-def request_scheduler(req_queue,  selected_requests, start_time, index, cache, new_cache_queue, cached_requests, final_text_embeddings, k_values, processor, clip_model,  worker_status, num_gpus, time_gap, log_file="request_throughput_3000_N.csv"):
+def request_scheduler(req_queue,  selected_requests, start_time, num_cached,prompt_to_index,index, cache, new_cache_queue, cached_requests, final_text_embeddings, k_values, processor, clip_model,  worker_status, num_gpus, time_gap, log_file="request_throughput_3000_N.csv"):
     device = clip_model.device
     agg_k_distribution = {5: 0, 10: 0, 15: 0, 20: 0, 25: 0} 
     minute = 0
@@ -247,7 +247,8 @@ def request_scheduler(req_queue,  selected_requests, start_time, index, cache, n
     last_check_time_queue = last_check_time
     request_count_per_min = 0
     size_of_queues = 0
-    throughput = 0        
+    throughput = 0     
+    cache_count = num_cached   
     for _, row in selected_requests.iterrows():
         while time.time() - start_time < row['seconds_from_start']:
             time.sleep(0.1)
@@ -262,6 +263,7 @@ def request_scheduler(req_queue,  selected_requests, start_time, index, cache, n
             new_cached_latents = cache_data['cached_latents']
             new_cached_prompt = cache_data['prompt']
             new_query_embedding = cache_data['query_embedding']
+            cache_count += 1
             while len(cache.item_map) + 5  > cache.max_size:
                 evicted_index = cache.evict()
                 if evicted_index is not None:
@@ -269,7 +271,7 @@ def request_scheduler(req_queue,  selected_requests, start_time, index, cache, n
                     index , final_text_embeddings = evict_from_faiss(index, final_text_embeddings, evicted_index)
 
             
-            num_embeddings = index.ntotal
+            # num_embeddings = index.ntotal
             cached_requests.append(new_cached_prompt) 
             index.add(new_query_embedding)
 
@@ -277,8 +279,8 @@ def request_scheduler(req_queue,  selected_requests, start_time, index, cache, n
             final_text_embeddings = np.concatenate((final_text_embeddings, new_query_embedding), axis=0)
             
             for idx, k in enumerate(k_values):
-                cache.insert(num_embeddings , 0, k, new_cached_latents[idx])
-
+                cache.insert(cache_count - 1 , 0, k, new_cached_latents[idx])
+            prompt_to_index[new_cached_prompt] = cache_count - 1
         prompt = row['prompt']
 
         # Process the prompt embedding
@@ -317,7 +319,8 @@ def request_scheduler(req_queue,  selected_requests, start_time, index, cache, n
             elif text_similarity_scores > 0.65:
                 k = 0
                 closest_index = 5
-            best_candidate = cache.retrieve(closest_index, indices[0][0])
+            cache_idx = prompt_to_index.get(closest_prompt)
+            best_candidate = cache.retrieve(closest_index, cache_idx)
             
             if best_candidate:
                 score, (idex, k_i, latent) = best_candidate
@@ -535,6 +538,11 @@ if __name__ == "__main__":
     image_paths = [os.path.join(image_directory, img_file) for img_file in os.listdir(image_directory) if img_file.endswith(('.png', '.jpg', '.jpeg'))]
     cached_requests = [extract_prompt(image_path) for image_path in image_paths]
     print("number of cached:", len(cached_requests))
+
+    prompt_to_index = {}
+    for i, prompt in enumerate(cached_requests):
+        prompt_to_index[prompt] = i
+    num_cached = len(cached_requests)
     # sorted_df = sorted_df.sort_values(by='seconds_from_start')
     # selected_requests = sorted_df.iloc[50000:51000].copy()
     # num_requests = len(selected_requests)
@@ -678,7 +686,8 @@ if __name__ == "__main__":
             elif text_similarity_scores > 0.65:
                 k = 0
                 closest_index = 5
-            best_candidate = cache.retrieve(closest_index, indices[0][0])
+            cache_idx = prompt_to_index.get(closest_prompt)
+            best_candidate = cache.retrieve(closest_index, cache_idx)
 
             if best_candidate:
                 score, (idex, k_i, latent) = best_candidate
@@ -755,6 +764,7 @@ if __name__ == "__main__":
                 new_cached_latents = cached_latents
                 new_cached_prompt = prompt
                 new_query_embedding = text_embedding
+                num_cached += 1
                 while len(cache.item_map) + 5  > cache.max_size:
                     evicted_index = cache.evict()
                     if evicted_index is not None:
@@ -762,7 +772,7 @@ if __name__ == "__main__":
                         index , final_text_embeddings = evict_from_faiss(index, final_text_embeddings, evicted_index)
 
                 
-                num_embeddings = index.ntotal
+                # num_embeddings = index.ntotal
                 cached_requests.append(new_cached_prompt) 
                 index.add(new_query_embedding)
 
@@ -770,8 +780,8 @@ if __name__ == "__main__":
                 final_text_embeddings = np.concatenate((final_text_embeddings, new_query_embedding), axis=0)
                 
                 for idx, k in enumerate(k_values):
-                    cache.insert(num_embeddings , 0, k, new_cached_latents[idx])
-
+                    cache.insert(num_cached - 1 , 0, k, new_cached_latents[idx])
+                prompt_to_index[new_cached_prompt] = num_cached - 1
         else:
             if model_type == "sd3.5":
                 timesteps_batch = precompute_timesteps_for_labels_35(scheduler, [0], "cpu",0)[0]
@@ -805,6 +815,7 @@ if __name__ == "__main__":
             new_cached_latents = cached_latents
             new_cached_prompt = prompt
             new_query_embedding = text_embedding
+            num_cached += 1
             while len(cache.item_map) + 5  > cache.max_size:
                 evicted_index = cache.evict()
                 if evicted_index is not None:
@@ -812,7 +823,7 @@ if __name__ == "__main__":
                     index , final_text_embeddings = evict_from_faiss(index, final_text_embeddings, evicted_index)
 
             
-            num_embeddings = index.ntotal
+            # num_embeddings = index.ntotal
             cached_requests.append(new_cached_prompt) 
             index.add(new_query_embedding)
 
@@ -820,8 +831,8 @@ if __name__ == "__main__":
             final_text_embeddings = np.concatenate((final_text_embeddings, new_query_embedding), axis=0)
             
             for idx, k in enumerate(k_values):
-                cache.insert(num_embeddings , 0, k, new_cached_latents[idx])
-
+                cache.insert(num_cached -1, 0, k, new_cached_latents[idx])
+            prompt_to_index[new_cached_prompt] = num_cached - 1
     duration = time.time() - start_time
 
     print("[Main] All requests processed.")
