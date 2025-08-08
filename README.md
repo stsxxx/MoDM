@@ -96,14 +96,14 @@ python3 pick_score.py > pick_score.txt
 If this work is helpful, please cite as:
 
 ```bibtex
-@misc{xia2025modmefficientservingimage,
-      title={MoDM: Efficient Serving for Image Generation via Mixture-of-Diffusion Models}, 
-      author={Yuchen Xia and Divyam Sharma and Yichao Yuan and Souvik Kundu and Nishil Talati},
-      year={2025},
-      eprint={2503.11972},
-      archivePrefix={arXiv},
-      primaryClass={cs.DC},
-      url={https://arxiv.org/abs/2503.11972}, 
+@inproceedings{xia2026modm,
+  author    = {Yuchen Xia and Divyam Sharma and Yichao Yuan and Souvik Kundu and Nishil Talati},
+  title     = {MoDM: Efficient Serving for Image Generation via Mixture-of-Diffusion Models},
+  booktitle = {Proceedings of the 30th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 1 (ASPLOS '26)},
+  year      = {2026},
+  month     = mar,
+  address   = {Pittsburgh, PA, USA},
+  publisher = {Association for Computing Machinery},
 }
 ```
 
