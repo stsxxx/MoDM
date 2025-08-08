@@ -576,7 +576,7 @@ if __name__ == "__main__":
             selected_requests[key]['seconds_from_start'] = 0 
         selected_requests = pd.DataFrame.from_dict(selected_requests, orient='index')
         
-        
+    num_requests = args.num_req    
     image_directory = args.cache_directory
 
     # Get a list of all image file paths in the directory
