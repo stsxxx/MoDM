@@ -99,7 +99,7 @@ If this work is helpful, please cite as:
 @inproceedings{xia2026modm,
   author    = {Yuchen Xia and Divyam Sharma and Yichao Yuan and Souvik Kundu and Nishil Talati},
   title     = {MoDM: Efficient Serving for Image Generation via Mixture-of-Diffusion Models},
-  booktitle = {Proceedings of the 30th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 1 (ASPLOS '26)},
+  booktitle = {Proceedings of the 31st ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 1 (ASPLOS '26)},
   year      = {2026},
   month     = mar,
   address   = {Pittsburgh, PA, USA},
